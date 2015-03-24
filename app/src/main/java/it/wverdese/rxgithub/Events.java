@@ -13,10 +13,12 @@ public class Events {
     /*
      * Creates a subject that emits events for each click on view
      */
-    public static Observable<Object> click(View view) {
-        final PublishSubject<Object> subject = PublishSubject.create();
-        view.setOnClickListener(v -> subject.onNext(new Object()));
-        return subject;
+    public static Observable<View> click(View view) {
+        Observable.create((Subscriber<? super View> subscriber) -> {
+            view.setOnClickListener(subscriber::onNext);
+            // the following adds an "unsubscribe callback"
+            subscriber.add(Subscriptions.create(() -> view.setOnClickListener(null)));
+        });
     }
 
 }
