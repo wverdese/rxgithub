@@ -19,7 +19,7 @@ public class Events {
             view.setOnClickListener(subscriber::onNext);
             // the following adds an "unsubscribe callback"
             subscriber.add(Subscriptions.create(() -> view.setOnClickListener(null)));
-        });
+        }).share();
     }
 
 }

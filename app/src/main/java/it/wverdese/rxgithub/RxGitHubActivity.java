@@ -54,7 +54,9 @@ public class RxGitHubActivity extends Activity {
         Observable<View> refreshClickStream = Events.click(mRefresh)
                 .startWith(mRefresh);
 
-        refreshClickStream.subscribe(subscriber -> showProgress(true));
+        refreshClickStream
+                .observeOn(AndroidSchedulers.mainThread()) //get response on main Thread (like AsyncTasks)
+                .subscribe(subscriber -> showProgress(true));
 
         //a stream of API url requests (String)
         Observable<String> requestStream =
@@ -69,6 +71,7 @@ public class RxGitHubActivity extends Activity {
         //a stream of results (User[]) corresponding to API calls
         Observable<User[]> responseStream =
                 requestStream
+                    .subscribeOn(Schedulers.io()) //execute metaStream on a new thread (like AsyncTasks)
                     .flatMap(s -> {
 
                                 //a stream that executes a single api request
@@ -93,16 +96,17 @@ public class RxGitHubActivity extends Activity {
                                         }
                                 );
 
+                                metaStream.subscribeOn(Schedulers.io()); //execute metaStream on a new thread (like AsyncTasks)
+
                                 return metaStream;
 
                             }
                     )
-                    .subscribeOn(Schedulers.newThread()) //execute metaStream on a new thread (like AsyncTasks)
-                    .observeOn(AndroidSchedulers.mainThread()) //get response on main Thread (like AsyncTasks)
                 ;
 
         //the subscriber: observes the responseStream and updates the UI
         responseStream
+                .observeOn(AndroidSchedulers.mainThread()) //get response on main Thread (like AsyncTasks)
                 .subscribe(new Observer<User[]>() {
 
                     @Override
@@ -136,6 +140,10 @@ public class RxGitHubActivity extends Activity {
     private void showProgress(boolean show) {
         mProgress.setVisibility(show ? View.VISIBLE : View.GONE);
         mCardToolbar.getMenu().findItem(R.id.action_refresh).setVisible(!show);
+    }
+
+    private void toggleProgress() {
+        mProgress.setVisibility(mProgress.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
     }
 
     //the Adapter for the ListView
