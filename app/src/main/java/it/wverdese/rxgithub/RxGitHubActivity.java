@@ -22,11 +22,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 import rx.Observable;
-import rx.Observer;
 import rx.Subscriber;
+import rx.Subscription;
 import rx.android.schedulers.AndroidSchedulers;
 import rx.schedulers.Schedulers;
-import rx.subscriptions.Subscriptions;
+import rx.subjects.PublishSubject;
 
 /**
  * Created by walter on 23/03/15.
@@ -35,10 +35,12 @@ public class RxGitHubActivity extends Activity {
 
     private static final String API_CALL = "https://api.github.com/users?since=%s";
 
-    private Toolbar mCardToolbar;
-    private ListView mListView;
+    private Toolbar           mCardToolbar;
+    private ListView          mListView;
     private GitHubListAdapter mAdapter;
-    private ProgressBar mProgress;
+    private ProgressBar       mProgress;
+
+    private Subscription subscription;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,79 +52,70 @@ public class RxGitHubActivity extends Activity {
         mListView = (ListView) findViewById(R.id.card_list);
         mCardToolbar.inflateMenu(R.menu.menu_card);
 
-        View mRefresh = findViewById(R.id.action_refresh);
-
-        Observable.create((Subscriber<? super View> subscriber) -> {
-
-            mRefresh.setOnClickListener(subscriber::onNext);
-            subscriber.add(Subscriptions.create(() -> mRefresh.setOnClickListener(null)));
-
-        })
-        //.share()
-        .startWith(mRefresh)
-        .observeOn(AndroidSchedulers.mainThread()) //get response on main Thread (like AsyncTasks)
-        //.subscribe(subscriber -> showProgress(true))
-        .map(o -> {
-
-            int randomOffset = (int) Math.floor(Math.random() * 500);
-            return String.format(API_CALL, randomOffset);
-
-        })
-        .flatMap(s -> {
-
-            return Observable.create(subscriber -> {
-
-                try {
-                    //do http request
-                    URL url = new URL(s);
-                    HttpURLConnection urlConnection = (HttpURLConnection) url.openConnection();
-                    InputStream in = urlConnection.getInputStream();
-
-                    //parse JSON
-                    Gson gson = new Gson();
-                    User[] data = gson.fromJson(new InputStreamReader(in), User[].class);
-
-                    subscriber.onNext(data);
-                    subscriber.onCompleted();
-
-                } catch (Exception e) {
-                    subscriber.onError(e);
-                }
-
-            })
-            .subscribeOn(Schedulers.io()); //execute metaStream on a new thread (like AsyncTasks);
-
-        })
-        .observeOn(AndroidSchedulers.mainThread()) //get response on main Thread (like AsyncTasks)
-        .subscribe(new Observer<Object>() {
-
-            @Override
-            public void onCompleted() {
-                //nop
+        final PublishSubject<Void> clicks = PublishSubject.create();
+        mCardToolbar.setOnMenuItemClickListener(menuItem -> {
+            switch (menuItem.getItemId())
+            {
+                case R.id.action_refresh:
+                    clicks.onNext(null);
+                    return true;
             }
-
-            @Override
-            public void onError(Throwable e) {
-                //showProgress(false);
-                e.printStackTrace();
-                Toast.makeText(RxGitHubActivity.this, "An error occurred", Toast.LENGTH_LONG).show();
-            }
-
-            @Override
-            public void onNext(Object o) {
-                User[] users = (User[]) o;
-
-                //showProgress(false);
-                if (mAdapter == null) {
-                    mAdapter = new GitHubListAdapter(users);
-                    mListView.setAdapter(mAdapter);
-                } else {
-                    mAdapter.replaceData(users);
-                }
-            }
-
+            return false;
         });
 
+        subscription = clicks
+                .startWith((Void) null)
+                .doOnNext($ -> showProgress(true))
+                .observeOn(Schedulers.io())
+                .map(o -> {
+                    int randomOffset = (int)Math.floor(Math.random() * 500);
+                    return String.format(API_CALL, randomOffset);
+                })
+                .flatMap(s -> Observable.create((Subscriber<? super User[]> subscriber) -> {
+                    try
+                    {
+                        //do http request
+                        URL url = new URL(s);
+                        HttpURLConnection urlConnection = (HttpURLConnection)url.openConnection();
+                        InputStream in = urlConnection.getInputStream();
+
+                        //parse JSON
+                        Gson gson = new Gson();
+                        User[] data = gson.fromJson(new InputStreamReader(in), User[].class);
+
+                        subscriber.onNext(data);
+                        subscriber.onCompleted();
+                    }
+                    catch (Throwable e)
+                    {
+                        subscriber.onError(e);
+                    }
+                }))
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(users -> {
+                    showProgress(false);
+                    if (mAdapter == null)
+                    {
+                        mAdapter = new GitHubListAdapter(users);
+                        mListView.setAdapter(mAdapter);
+                    }
+                    else
+                    {
+                        mAdapter.replaceData(users);
+                    }
+                }, error -> {
+                    showProgress(false);
+                    error.printStackTrace();
+                    Toast.makeText(RxGitHubActivity.this, "An error occurred", Toast.LENGTH_LONG).show();
+                });
+
+    }
+
+    @Override
+    protected void onDestroy()
+    {
+        if (subscription != null) subscription.unsubscribe();
+        super.onDestroy();
     }
 
     //handle the toolbar's items visibility
