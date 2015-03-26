@@ -51,15 +51,16 @@ public class RxGitHubActivity extends Activity {
         View mRefresh = findViewById(R.id.action_refresh);
 
         //a stream of clicks on refresh button
-        Observable<Object> refreshClickStream = Events.click(mRefresh);
+        Observable<View> refreshClickStream = Events.click(mRefresh)
+                .startWith(mRefresh);
+
+        refreshClickStream.subscribe(subscriber -> showProgress(true));
 
         //a stream of API url requests (String)
         Observable<String> requestStream =
                 refreshClickStream
-                        .startWith(new Object())
                         .map(o -> {
 
-                            showProgress(true);
                             int randomOffset = (int) Math.floor(Math.random() * 500);
                             return String.format(API_CALL, randomOffset);
 
@@ -84,11 +85,10 @@ public class RxGitHubActivity extends Activity {
                                                 User[] data = gson.fromJson(new InputStreamReader(in), User[].class);
 
                                                 subscriber.onNext(data);
+                                                subscriber.onCompleted();
 
                                             } catch (Exception e) {
                                                 subscriber.onError(e);
-                                            } finally {
-                                                subscriber.onCompleted();
                                             }
                                         }
                                 );
@@ -107,17 +107,19 @@ public class RxGitHubActivity extends Activity {
 
                     @Override
                     public void onCompleted() {
-                        showProgress(false);
+                        //nop
                     }
 
                     @Override
                     public void onError(Throwable e) {
+                        showProgress(false);
                         e.printStackTrace();
                         Toast.makeText(RxGitHubActivity.this, "An error occurred", Toast.LENGTH_LONG).show();
                     }
 
                     @Override
                     public void onNext(User[] users) {
+                        showProgress(false);
                         if (mAdapter == null) {
                             mAdapter = new GitHubListAdapter(users);
                             mListView.setAdapter(mAdapter);
