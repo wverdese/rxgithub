@@ -23,8 +23,10 @@ import java.util.List;
 
 import rx.Observable;
 import rx.Observer;
+import rx.Subscriber;
 import rx.android.schedulers.AndroidSchedulers;
 import rx.schedulers.Schedulers;
+import rx.subscriptions.Subscriptions;
 
 /**
  * Created by walter on 23/03/15.
@@ -50,89 +52,76 @@ public class RxGitHubActivity extends Activity {
 
         View mRefresh = findViewById(R.id.action_refresh);
 
-        //a stream of clicks on refresh button
-        Observable<View> refreshClickStream = Events.click(mRefresh)
-                .startWith(mRefresh);
+        Observable.create((Subscriber<? super View> subscriber) -> {
 
-        refreshClickStream
-                .observeOn(AndroidSchedulers.mainThread()) //get response on main Thread (like AsyncTasks)
-                .subscribe(subscriber -> showProgress(true));
+            mRefresh.setOnClickListener(subscriber::onNext);
+            subscriber.add(Subscriptions.create(() -> mRefresh.setOnClickListener(null)));
 
-        //a stream of API url requests (String)
-        Observable<String> requestStream =
-                refreshClickStream
-                        .map(o -> {
+        })
+        //.share()
+        .startWith(mRefresh)
+        .observeOn(AndroidSchedulers.mainThread()) //get response on main Thread (like AsyncTasks)
+        //.subscribe(subscriber -> showProgress(true))
+        .map(o -> {
 
-                            int randomOffset = (int) Math.floor(Math.random() * 500);
-                            return String.format(API_CALL, randomOffset);
+            int randomOffset = (int) Math.floor(Math.random() * 500);
+            return String.format(API_CALL, randomOffset);
 
-                        });
+        })
+        .flatMap(s -> {
 
-        //a stream of results (User[]) corresponding to API calls
-        Observable<User[]> responseStream =
-                requestStream
-                    .subscribeOn(Schedulers.io()) //execute metaStream on a new thread (like AsyncTasks)
-                    .flatMap(s -> {
+            return Observable.create(subscriber -> {
 
-                                //a stream that executes a single api request
-                                Observable<User[]> metaStream = Observable.create(subscriber -> {
+                try {
+                    //do http request
+                    URL url = new URL(s);
+                    HttpURLConnection urlConnection = (HttpURLConnection) url.openConnection();
+                    InputStream in = urlConnection.getInputStream();
 
-                                            try {
-                                                //do http request
-                                                URL url = new URL(s);
-                                                HttpURLConnection urlConnection = (HttpURLConnection) url.openConnection();
-                                                InputStream in = urlConnection.getInputStream();
+                    //parse JSON
+                    Gson gson = new Gson();
+                    User[] data = gson.fromJson(new InputStreamReader(in), User[].class);
 
-                                                //parse JSON
-                                                Gson gson = new Gson();
-                                                User[] data = gson.fromJson(new InputStreamReader(in), User[].class);
+                    subscriber.onNext(data);
+                    subscriber.onCompleted();
 
-                                                subscriber.onNext(data);
-                                                subscriber.onCompleted();
+                } catch (Exception e) {
+                    subscriber.onError(e);
+                }
 
-                                            } catch (Exception e) {
-                                                subscriber.onError(e);
-                                            }
-                                        }
-                                );
+            })
+            .subscribeOn(Schedulers.io()); //execute metaStream on a new thread (like AsyncTasks);
 
-                                metaStream.subscribeOn(Schedulers.io()); //execute metaStream on a new thread (like AsyncTasks)
+        })
+        .observeOn(AndroidSchedulers.mainThread()) //get response on main Thread (like AsyncTasks)
+        .subscribe(new Observer<Object>() {
 
-                                return metaStream;
+            @Override
+            public void onCompleted() {
+                //nop
+            }
 
-                            }
-                    )
-                ;
+            @Override
+            public void onError(Throwable e) {
+                //showProgress(false);
+                e.printStackTrace();
+                Toast.makeText(RxGitHubActivity.this, "An error occurred", Toast.LENGTH_LONG).show();
+            }
 
-        //the subscriber: observes the responseStream and updates the UI
-        responseStream
-                .observeOn(AndroidSchedulers.mainThread()) //get response on main Thread (like AsyncTasks)
-                .subscribe(new Observer<User[]>() {
+            @Override
+            public void onNext(Object o) {
+                User[] users = (User[]) o;
 
-                    @Override
-                    public void onCompleted() {
-                        //nop
-                    }
+                //showProgress(false);
+                if (mAdapter == null) {
+                    mAdapter = new GitHubListAdapter(users);
+                    mListView.setAdapter(mAdapter);
+                } else {
+                    mAdapter.replaceData(users);
+                }
+            }
 
-                    @Override
-                    public void onError(Throwable e) {
-                        showProgress(false);
-                        e.printStackTrace();
-                        Toast.makeText(RxGitHubActivity.this, "An error occurred", Toast.LENGTH_LONG).show();
-                    }
-
-                    @Override
-                    public void onNext(User[] users) {
-                        showProgress(false);
-                        if (mAdapter == null) {
-                            mAdapter = new GitHubListAdapter(users);
-                            mListView.setAdapter(mAdapter);
-                        } else {
-                            mAdapter.replaceData(users);
-                        }
-                    }
-
-                });
+        });
 
     }
 
